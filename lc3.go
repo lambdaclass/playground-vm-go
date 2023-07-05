@@ -1,17 +1,24 @@
 package lc3
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
-//Memory
+// Memory
 const MemoryMax = 1 << 16
+
 var memory [MemoryMax]uint16 // 65536 locations
 
-//Registers
+const (
+	MR_KBSR = 0xFE00 /* keyboard status */
+	MR_KBDR = 0xFE02 /* keyboard data */
+)
+
+// Registers
 const (
 	R_R0 = iota //incremental value to const values, starts from 0
 	R_R1
@@ -21,14 +28,14 @@ const (
 	R_R5
 	R_R6
 	R_R7
-	R_PC  // program counter
+	R_PC // program counter
 	R_COND
 	R_COUNT
 )
 
 var reg [R_COUNT]uint16
 
-//Instructions
+// Instructions
 const (
 	OP_BR   = iota // branch
 	OP_ADD         // add
@@ -48,7 +55,7 @@ const (
 	OP_TRAP        // execute trap
 )
 
-//Condition flags
+// Condition flags
 const (
 	FL_POS = 1 << 0 // P
 	FL_ZRO = 1 << 1 // Z
@@ -65,6 +72,7 @@ const (
 	TRAP_HALT  uint16 = 0x25 // halt the program
 )
 
+var running bool = false
 
 func handleInterrupt() {
 	// Handle SIGINT signal
@@ -75,7 +83,7 @@ func handleInterrupt() {
 
 func signExtend(x uint16, bitCount int) uint16 {
 	// Puts 1 if negative or 0 if positive
-	if (x >> (bitCount - 1)) & 1 == 1 {
+	if (x>>(bitCount-1))&1 == 1 {
 		x |= (0xFFFF << bitCount)
 	}
 	return x
@@ -100,7 +108,7 @@ func add(instr uint16) {
 	immFlag := (instr >> 5) & 0x1
 
 	if immFlag == 1 {
-		imm5 := signExtend(instr & 0x1F, 5)
+		imm5 := signExtend(instr&0x1F, 5)
 		reg[r0] = reg[r1] + imm5
 	} else {
 		r2 := instr & 0x7
@@ -119,7 +127,7 @@ func and(instr uint16) {
 	immFlag := (instr >> 5) & 0x1
 
 	if immFlag == 1 {
-		imm5 := signExtend(instr & 0x1F, 5)
+		imm5 := signExtend(instr&0x1F, 5)
 		reg[r0] = reg[r1] & imm5
 	} else {
 		r2 := instr & 0x7
@@ -139,14 +147,13 @@ func not(instr uint16) {
 	updateFlags(r0)
 }
 
-
 func br(instr uint16) {
 	// PCoffset 9
-	pcOffset := signExtend(instr & 0x1FF, 9)
+	pcOffset := signExtend(instr&0x1FF, 9)
 	// Condition flag
 	condFlag := (instr >> 9) & 0x7
 
-	if condFlag & reg[R_COND] != 0 {
+	if condFlag&reg[R_COND] != 0 {
 		reg[R_PC] += pcOffset
 	}
 }
@@ -154,11 +161,11 @@ func br(instr uint16) {
 func jmp(instr uint16) {
 
 	/*
-	Also handles RET
-	RET is listed as a separate instruction in the specification, 
-	since it is a different keyword in assembly. 
-	However, it is actually a special case of JMP. 
-	RET happens whenever R1 is 7.
+		Also handles RET
+		RET is listed as a separate instruction in the specification,
+		since it is a different keyword in assembly.
+		However, it is actually a special case of JMP.
+		RET happens whenever R1 is 7.
 	*/
 
 	// First operand (SR1)
@@ -172,11 +179,11 @@ func jsr(instr uint16) {
 	reg[R_R7] = reg[R_PC]
 
 	if longFlag == 1 {
-			longPcOffset := signExtend(instr &0x7FF, 11)
-			reg[R_PC] += longPcOffset // JSR
+		longPcOffset := signExtend(instr&0x7FF, 11)
+		reg[R_PC] += longPcOffset // JSR
 	} else {
-			r1 := (instr >> 6) & 0x7
-			reg[R_PC] = reg[r1] // JSRR
+		r1 := (instr >> 6) & 0x7
+		reg[R_PC] = reg[r1] // JSRR
 	}
 }
 
@@ -184,22 +191,22 @@ func ld(instr uint16) {
 	// Destination register (DR)
 	r0 := (instr >> 9) & 0x7
 	// PCoffset 9
-	pcOffset := signExtend(instr & 0x1FF, 9)
+	pcOffset := signExtend(instr&0x1FF, 9)
 
-	reg[r0] = readMem(reg[R_PC] + pcOffset)
+	reg[r0] = memRead(reg[R_PC] + pcOffset)
 	updateFlags(r0)
 }
 
 func ldi(instr uint16) {
-	// destination register (DR) 
+	// destination register (DR)
 	r0 := (instr >> 9) & 0x7
-	
-	// PC offset 9 
-	pcOffset := signExtend(instr & 0x1FF, 9)
+
+	// PC offset 9
+	pcOffset := signExtend(instr&0x1FF, 9)
 
 	//add pcOffset to current memory position and gets val of the stored pointer
-	reg[r0] = readMem(readMem(reg[R_PC] + pcOffset))
-	updateFlags(r0) 
+	reg[r0] = memRead(memRead(reg[R_PC] + pcOffset))
+	updateFlags(r0)
 }
 
 func ldr(instr uint16) {
@@ -208,7 +215,7 @@ func ldr(instr uint16) {
 	// Base register (SR)
 	r1 := (instr >> 6) & 0x7
 	// Offset 6
-	offset := signExtend(instr & 0x3F, 6)
+	offset := signExtend(instr&0x3F, 6)
 
 	reg[r0] = memRead(reg[r1] + offset)
 	updateFlags(r0)
@@ -218,7 +225,7 @@ func lea(instr uint16) {
 	// Destination register (DR)
 	r0 := (instr >> 9) & 0x7
 	// PCoffset 9
-	pcOffset := signExtend(instr & 0x1FF, 9)
+	pcOffset := signExtend(instr&0x1FF, 9)
 
 	reg[r0] = reg[R_PC] + pcOffset
 	updateFlags(r0)
@@ -228,7 +235,7 @@ func st(instr uint16) {
 	// Source register (SR)
 	r0 := (instr >> 9) & 0x7
 	// PCoffset 9
-	pcOffset := signExtend(instr & 0x1FF, 9)
+	pcOffset := signExtend(instr&0x1FF, 9)
 
 	memWrite(reg[R_PC]+pcOffset, reg[r0])
 }
@@ -237,9 +244,9 @@ func sti(instr uint16) {
 	// Source register (SR)
 	r0 := (instr >> 9) & 0x7
 	// PCoffset 9
-	pcOffset := signExtend(instr & 0x1FF, 9)
+	pcOffset := signExtend(instr&0x1FF, 9)
 
-	memWrite(readMem(reg[R_PC]+pcOffset), reg[r0])
+	memWrite(memRead(reg[R_PC]+pcOffset), reg[r0])
 }
 
 func str(instr uint16) {
@@ -248,17 +255,105 @@ func str(instr uint16) {
 	// Base register (SR)
 	r1 := (instr >> 6) & 0x7
 	// Offset 6
-	offset := signExtend(instr & 0x3F, 6)
+	offset := signExtend(instr&0x3F, 6)
 
 	memWrite(reg[r1]+offset, reg[r0])
 }
 
+func getCharFromStdin() uint16 {
+	input := bufio.NewReader(os.Stdin)
+	char, _, err := input.ReadRune()
+	if err != nil {
+		panic("Error reading character from stdin")
+	}
+	return uint16(char)
+}
+
+func trapGetc() {
+	// Reads a character from stdin and stores on R0
+	reg[R_R0] = getCharFromStdin()
+	updateFlags(R_R0)
+}
+
+func trapOut() {
+	// Converts the char in R0 to string to byte buffer and writes on stdout, flushes/syncs right awy
+	char := rune(reg[R_R0])
+	os.Stdout.Write([]byte(string(char)))
+	os.Stdout.Sync()
+}
+
+func trapIn() {
+	fmt.Print("Enter a character: ")
+	char := getCharFromStdin()
+	fmt.Printf("%c", char)
+	os.Stdout.Sync()
+	reg[R_R0] = char
+	updateFlags(R_R0)
+}
+
+func trapPuts() {
+	//Iterate from start memory and stops when we arrive at position where value is 0
+	c := memory[reg[R_R0]:]
+	for _, value := range c {
+		if value == 0 {
+			break
+		}
+		fmt.Printf("%c", value)
+	}
+	fmt.Println()
+}
+
+func trapPutsp() {
+	c := memory[reg[R_R0]:]
+	for _, value := range c {
+		if value == 0 {
+			break
+		}
+		char1 := value & 0xFF
+		fmt.Printf("%c", char1)
+		char2 := value >> 8
+		if char2 != 0 {
+			fmt.Printf("%c", char2)
+		}
+	}
+}
+
+func trapHalt() {
+	fmt.Printf("HALT")
+	running = false
+}
+
+func trap(instr uint16) {
+	reg[R_R7] = reg[R_PC]
+
+	switch instr & 0xFF {
+	case TRAP_GETC:
+		trapGetc()
+	case TRAP_OUT:
+		trapOut()
+	case TRAP_PUTS:
+		trapPuts()
+	case TRAP_IN:
+		trapIn()
+	case TRAP_PUTSP:
+		trapPutsp()
+	case TRAP_HALT:
+		trapHalt()
+	}
+}
 
 func abort() {
 	panic("Aborted") // Generate a runtime panic
-	os.Exit(1)      // This line will not be reached, but included for completeness
+	os.Exit(1)       // This line will not be reached, but included for completeness
 }
 
+func memWrite(address uint16, val uint16) {
+	memory[address] = val
+}
+
+func memRead(address uint16) uint16 {
+	return memory[address]
+}
 
 func main() {
 
@@ -268,14 +363,14 @@ func main() {
 		fmt.Println("lc3 [image-file1] ...")
 		os.Exit(2)
 	}
-	
+
 	for j := 1; j < len(os.Args); j++ {
 		if !readImage(os.Args[j]) {
 			fmt.Printf("failed to load image: %s\n", os.Args[j])
 			os.Exit(1)
 		}
 	}
-	
+
 	// Setup
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGINT)
 	go handleInterrupt()
@@ -289,13 +384,13 @@ func main() {
 	const PC_START = 0x3000
 	reg[R_PC] = PC_START
 
-	running := true
+	running = true
 	for running {
 		// FETCH
-		instr := readMem(reg[R_PC])
+		instr := memRead(reg[R_PC])
 		reg[R_PC]++
 
-		op := instr >> 12 //Look at the opcode 
+		op := instr >> 12 //Look at the opcode
 
 		switch op {
 		case OP_ADD:
