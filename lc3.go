@@ -352,7 +352,20 @@ func memWrite(address uint16, val uint16) {
 	memory[address] = val
 }
 
+func getCharFromKeyboard() uint16{
+
+}
+
 func memRead(address uint16) uint16 {
+
+	if address == MR_KBSR {
+		if check_key() {
+			memory[MR_KBSR] = (1 << 15)
+			memory[MR_KBDR] = getCharFromKeyboard() //set the 
+		} else {
+			memory[MR_KBSR] = 0;
+		}
+	}
 	return memory[address]
 }
 
@@ -381,6 +394,10 @@ func readImage(imagePath string) int {
 
 	readImageFile(dat)
 
+}
+
+func disableIputBuffering() {
+	
 }
 
 func main() {
