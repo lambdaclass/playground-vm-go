@@ -1,7 +1,8 @@
-package lc3
+package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"os/signal"
@@ -355,6 +356,33 @@ func memRead(address uint16) uint16 {
 	return memory[address]
 }
 
+func readImageFile(file []byte) {
+
+	// Probably can be optimized
+	origin := len(memory) - len(file)
+
+	j := 0
+	for i := origin; i < len(memory); i += 8 {
+		memory[i] = swap16(uint16(file[j]))
+		++j
+	}
+}
+
+func swap16(val uint16) uint16 {
+	return ((val & 0xFF) << 8) | ((val >> 8) & 0xFF)
+}
+
+func readImage(imagePath string) int {
+	dat, err := os.ReadFile(imagePath)
+
+	if err != nil {
+		panic("Error reading a file")
+	}
+
+	readImageFile(dat)
+
+}
+
 func main() {
 
 	// Load Arguments
@@ -364,18 +392,18 @@ func main() {
 		os.Exit(2)
 	}
 
-	for j := 1; j < len(os.Args); j++ {
-		if !readImage(os.Args[j]) {
-			fmt.Printf("failed to load image: %s\n", os.Args[j])
-			os.Exit(1)
-		}
-	}
+	// for j := 1; j < len(os.Args); j++ {
+	// 	if !readImage(os.Args[j]) {
+	// 		fmt.Printf("failed to load image: %s\n", os.Args[j])
+	// 		os.Exit(1)
+	// 	}
+	// }
 
 	// Setup
 	signal.Notify(make(chan os.Signal, 1), syscall.SIGINT)
 	go handleInterrupt()
 
-	disableInputBuffering()
+	// disableInputBuffering()
 
 	// since exactly one condition flag should be set at any given time, set the Z flag
 	reg[R_COND] = FL_ZRO
