@@ -359,14 +359,10 @@ func getCharFromKeyboard() uint16 {
 	return 0
 }
 
-func check_key() bool {
-	return false
-}
-
 func memRead(address uint16) uint16 {
 
 	if address == MR_KBSR {
-		if check_key() {
+		if checkKey() {
 			memory[MR_KBSR] = (1 << 15)
 			memory[MR_KBDR] = getCharFromKeyboard() //set the
 		} else {
@@ -377,35 +373,37 @@ func memRead(address uint16) uint16 {
 }
 
 func readImageFile(file *os.File) {
-	if file == nil {
-		fmt.Println("Invalid file parameter")
-		return
-	}
 
-	defer file.Close()
-
+	// Reading first 2 bytes of file as origin point in memory
 	var origin uint16
 	err := binary.Read(file, binary.BigEndian, &origin)
 	if err != nil {
-		fmt.Println("Failed to read origin:", err)
-		return
+		fmt.Println("Error reading origin of the file")
+		panic(err)
 	}
 
+	// Converting to littleEndian
 	origin = swap16(origin)
 
+	//Size of the program we are loading
 	maxRead := MemoryMax - int(origin)
 
+	// Create buffer to store bytes
 	data := make([]uint16, maxRead)
+
+	// Read file
 	err = binary.Read(file, binary.BigEndian, &data)
 	if err != nil {
-		fmt.Println("Failed to read data:", err)
-		return
+		fmt.Println("Error reading data of the file")
+		panic(err)
 	}
 
+	// For each byte, we convert to LittleEndian
 	for i := range data {
 		data[i] = swap16(data[i])
 	}
 
+	// Finally we store on memory
 	copy(memory[origin:], data)
 }
 
@@ -414,8 +412,6 @@ func swap16(val uint16) uint16 {
 }
 
 func readImage(imagePath string) bool {
-	fmt.Println("reading from image path")
-
 	file, err := os.Open(imagePath)
 	if err != nil {
 		fmt.Println("Failed to open file:", err)
@@ -442,6 +438,7 @@ func disableInputBuffering() {
 
 	// Create a new termios structure and copy the original attributes
 	newTermios := *originalTermios
+	fmt.Println("reading from image path")
 
 	// Disable canonical mode and echoing
 	newTermios.Lflag &^= unix.ICANON | unix.ECHO
