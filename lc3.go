@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // Memory
@@ -79,6 +81,7 @@ func handleInterrupt() {
 	// Handle SIGINT signal
 	fmt.Println("Received SIGINT signal. Handling interrupt...")
 	// Add your interrupt handling code here
+	restoreInputBuffering()
 	os.Exit(0)
 }
 
@@ -352,8 +355,12 @@ func memWrite(address uint16, val uint16) {
 	memory[address] = val
 }
 
-func getCharFromKeyboard() uint16{
+func getCharFromKeyboard() uint16 {
+	return 0
+}
 
+func check_key() bool {
+	return false
 }
 
 func memRead(address uint16) uint16 {
@@ -361,43 +368,109 @@ func memRead(address uint16) uint16 {
 	if address == MR_KBSR {
 		if check_key() {
 			memory[MR_KBSR] = (1 << 15)
-			memory[MR_KBDR] = getCharFromKeyboard() //set the 
+			memory[MR_KBDR] = getCharFromKeyboard() //set the
 		} else {
-			memory[MR_KBSR] = 0;
+			memory[MR_KBSR] = 0
 		}
 	}
 	return memory[address]
 }
 
-func readImageFile(file []byte) {
-
-	// Probably can be optimized
-	origin := len(memory) - len(file)
-
-	j := 0
-	for i := origin; i < len(memory); i += 8 {
-		memory[i] = swap16(uint16(file[j]))
-		++j
+func readImageFile(file *os.File) {
+	if file == nil {
+		fmt.Println("Invalid file parameter")
+		return
 	}
+
+	defer file.Close()
+
+	var origin uint16
+	err := binary.Read(file, binary.BigEndian, &origin)
+	if err != nil {
+		fmt.Println("Failed to read origin:", err)
+		return
+	}
+
+	origin = swap16(origin)
+
+	maxRead := MemoryMax - int(origin)
+
+	data := make([]uint16, maxRead)
+	err = binary.Read(file, binary.BigEndian, &data)
+	if err != nil {
+		fmt.Println("Failed to read data:", err)
+		return
+	}
+
+	for i := range data {
+		data[i] = swap16(data[i])
+	}
+
+	copy(memory[origin:], data)
 }
 
 func swap16(val uint16) uint16 {
 	return ((val & 0xFF) << 8) | ((val >> 8) & 0xFF)
 }
 
-func readImage(imagePath string) int {
-	dat, err := os.ReadFile(imagePath)
+func readImage(imagePath string) bool {
+	fmt.Println("reading from image path")
 
+	file, err := os.Open(imagePath)
 	if err != nil {
-		panic("Error reading a file")
+		fmt.Println("Failed to open file:", err)
+		return false
 	}
+	defer file.Close()
 
-	readImageFile(dat)
-
+	readImageFile(file)
+	return true
 }
 
-func disableIputBuffering() {
-	
+var originalTermios *unix.Termios
+
+func disableInputBuffering() {
+
+	// Retrieve current terminal attributes
+	original, err := unix.IoctlGetTermios(syscall.Stdin, unix.TCGETS)
+	if err != nil {
+		fmt.Println("Failed to retrieve terminal attributes:", err)
+		return
+	}
+
+	originalTermios = original
+
+	// Create a new termios structure and copy the original attributes
+	newTermios := *originalTermios
+
+	// Disable canonical mode and echoing
+	newTermios.Lflag &^= unix.ICANON | unix.ECHO
+
+	// Set the modified terminal attributes
+	if err := unix.IoctlSetTermios(syscall.Stdin, unix.TCSETS, &newTermios); err != nil {
+		fmt.Println("Failed to set terminal attributes:", err)
+		return
+	}
+}
+
+func restoreInputBuffering() {
+
+	if originalTermios == nil {
+		fmt.Println("No original terminal attributes available")
+		return
+	}
+
+	// Set the modified terminal attributes
+	if err := unix.IoctlSetTermios(syscall.Stdin, unix.TCSETS, originalTermios); err != nil {
+		fmt.Println("Failed to set terminal attributes:", err)
+		return
+	}
+}
+
+func checkKey() bool {
+	reader := bufio.NewReader(os.Stdin)
+	_, err := reader.Peek(1)
+	return err == nil
 }
 
 func main() {
@@ -408,19 +481,25 @@ func main() {
 		fmt.Println("lc3 [image-file1] ...")
 		os.Exit(2)
 	}
+	fmt.Println("Args are: ", os.Args, " and its lenngth is: ", len(os.Args))
+	for j := 1; j < len(os.Args); j++ {
+		if !readImage(os.Args[j]) {
+			fmt.Printf("failed to load image: %s\n", os.Args[j])
+			os.Exit(1)
+		}
+	}
 
-	// for j := 1; j < len(os.Args); j++ {
-	// 	if !readImage(os.Args[j]) {
-	// 		fmt.Printf("failed to load image: %s\n", os.Args[j])
-	// 		os.Exit(1)
-	// 	}
-	// }
-
+	fmt.Println("Once file has been read, memory is: ", memory)
 	// Setup
-	signal.Notify(make(chan os.Signal, 1), syscall.SIGINT)
-	go handleInterrupt()
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt)
 
-	// disableInputBuffering()
+	go func() {
+		<-signalChan
+		handleInterrupt()
+	}()
+
+	disableInputBuffering()
 
 	// since exactly one condition flag should be set at any given time, set the Z flag
 	reg[R_COND] = FL_ZRO
@@ -437,58 +516,43 @@ func main() {
 
 		op := instr >> 12 //Look at the opcode
 
+		fmt.Println("Reading instruction: ", op)
 		switch op {
 		case OP_ADD:
 			add(instr)
-			break
 		case OP_AND:
 			and(instr)
-			break
 		case OP_NOT:
 			not(instr)
-			break
 		case OP_BR:
-			// conditional branch
 			br(instr)
-			break
 		case OP_JMP:
 			jmp(instr)
-			break
 		case OP_JSR:
 			jsr(instr)
-			break
 		case OP_LD:
 			ld(instr)
-			break
 		case OP_LDI:
 			ldi(instr)
-			break
 		case OP_LDR:
 			ldr(instr)
-			break
 		case OP_LEA:
 			lea(instr)
-			break
 		case OP_ST:
 			st(instr)
-			break
 		case OP_STI:
 			sti(instr)
-			break
 		case OP_STR:
 			str(instr)
-			break
 		case OP_TRAP:
 			trap(instr)
-			break
 		case OP_RES:
 		case OP_RTI:
 		default:
-			// BAD OPCODE
 			abort()
-			break
 		}
 	}
 
 	// Shutdown
+	restoreInputBuffering()
 }
