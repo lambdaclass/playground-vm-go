@@ -105,6 +105,7 @@ func updateFlags(r uint16) {
 }
 
 func add(instr uint16) {
+	//fmt.Println("Entering on add func")
 	// Destination register (DR)
 	r0 := (instr >> 9) & 0x7
 	// First operand (SR1)
@@ -153,6 +154,7 @@ func not(instr uint16) {
 }
 
 func br(instr uint16) {
+	//fmt.Println("entering on br")
 	// PCoffset 9
 	pcOffset := signExtend(instr&0x1FF, 9)
 	// Condition flag
@@ -179,6 +181,7 @@ func jmp(instr uint16) {
 }
 
 func jsr(instr uint16) {
+	//fmt.Println("Entering on jsr")
 	// Long flag
 	longFlag := (instr >> 11) & 1
 	reg[R_R7] = reg[R_PC]
@@ -193,6 +196,7 @@ func jsr(instr uint16) {
 }
 
 func ld(instr uint16) {
+	//fmt.Println("Entering on ld func")
 	// Destination register (DR)
 	r0 := (instr >> 9) & 0x7
 	// PCoffset 9
@@ -255,6 +259,7 @@ func sti(instr uint16) {
 }
 
 func str(instr uint16) {
+	//fmt.Println("entering on str")
 	// Destination register (DR)
 	r0 := (instr >> 9) & 0x7
 	// Base register (SR)
@@ -373,7 +378,8 @@ func memRead(address uint16) uint16 {
 	return memory[address]
 }
 
-func readImageFile(file *os.File) {
+func readImageFile(file *os.File, fileSize int64) {
+
 	var origin uint16
 
 	err := binary.Read(file, binary.BigEndian, &origin)
@@ -384,7 +390,7 @@ func readImageFile(file *os.File) {
 
 	origin = swap16(origin)
 
-	maxRead := MEMORY_MAX - int(origin)
+	maxRead := MEMORY_MAX - fileSize
 	data := make([]uint16, maxRead)
 
 	byteData := make([]byte, maxRead*2)
@@ -400,11 +406,13 @@ func readImageFile(file *os.File) {
 		return
 	}
 
+	fmt.Println("Tamaño de los bytes leidos", len(data))
+
 	for i := range data {
 		data[i] = swap16(data[i])
 	}
 
-	p := memory[origin:]
+	p := memory[maxRead:]
 	copy(p, data)
 }
 
@@ -420,7 +428,9 @@ func readImage(imagePath string) bool {
 	}
 	defer file.Close()
 
-	readImageFile(file)
+	fileInfo, err := os.Stat(imagePath)
+	fmt.Println("Tamaño del fichero", fileInfo.Size())
+	readImageFile(file, fileInfo.Size())
 	return true
 }
 
@@ -439,7 +449,6 @@ func disableInputBuffering() {
 
 	// Create a new termios structure and copy the original attributes
 	newTermios := *originalTermios
-	fmt.Println("reading from image path")
 
 	// Disable canonical mode and echoing
 	newTermios.Lflag &^= unix.ICANON | unix.ECHO
@@ -514,7 +523,10 @@ func main() {
 
 		op := instr >> 12 //Look at the opcode
 
-		fmt.Println("Reading instruction: ", instr)
+		if op != 0 {
+			fmt.Println("Reading OP: ", op, "allocated in position: ", reg[R_PC])
+		}
+
 		switch op {
 		case OP_ADD:
 			add(instr)
