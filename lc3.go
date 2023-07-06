@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -12,9 +13,9 @@ import (
 )
 
 // Memory
-const MemoryMax = 1 << 16
+const MEMORY_MAX = 1 << 16
 
-var memory [MemoryMax]uint16 // 65536 locations
+var memory [MEMORY_MAX]uint16 // 65536 locations
 
 const (
 	MR_KBSR = 0xFE00 /* keyboard status */
@@ -373,38 +374,38 @@ func memRead(address uint16) uint16 {
 }
 
 func readImageFile(file *os.File) {
-
-	// Reading first 2 bytes of file as origin point in memory
 	var origin uint16
+
 	err := binary.Read(file, binary.BigEndian, &origin)
 	if err != nil {
-		fmt.Println("Error reading origin of the file")
-		panic(err)
+		fmt.Println("Failed to read origin:", err)
+		return
 	}
 
-	// Converting to littleEndian
 	origin = swap16(origin)
 
-	//Size of the program we are loading
-	maxRead := MemoryMax - int(origin)
-
-	// Create buffer to store bytes
+	maxRead := MEMORY_MAX - int(origin)
 	data := make([]uint16, maxRead)
 
-	// Read file
-	err = binary.Read(file, binary.BigEndian, &data)
+	byteData := make([]byte, maxRead*2)
+	_, err = file.Read(byteData)
 	if err != nil {
-		fmt.Println("Error reading data of the file")
-		panic(err)
+		fmt.Println("Failed to read data:", err)
+		return
 	}
 
-	// For each byte, we convert to LittleEndian
+	err = binary.Read(bytes.NewReader(byteData), binary.BigEndian, &data)
+	if err != nil {
+		fmt.Println("Failed to decode data:", err)
+		return
+	}
+
 	for i := range data {
 		data[i] = swap16(data[i])
 	}
 
-	// Finally we store on memory
-	copy(memory[origin:], data)
+	p := memory[origin:]
+	copy(p, data)
 }
 
 func swap16(val uint16) uint16 {
@@ -451,7 +452,6 @@ func disableInputBuffering() {
 }
 
 func restoreInputBuffering() {
-
 	if originalTermios == nil {
 		fmt.Println("No original terminal attributes available")
 		return
@@ -478,7 +478,7 @@ func main() {
 		fmt.Println("lc3 [image-file1] ...")
 		os.Exit(2)
 	}
-	fmt.Println("Args are: ", os.Args, " and its lenngth is: ", len(os.Args))
+
 	for j := 1; j < len(os.Args); j++ {
 		if !readImage(os.Args[j]) {
 			fmt.Printf("failed to load image: %s\n", os.Args[j])
@@ -509,11 +509,12 @@ func main() {
 	for running {
 		// FETCH
 		instr := memRead(reg[R_PC])
+
 		reg[R_PC]++
 
 		op := instr >> 12 //Look at the opcode
 
-		fmt.Println("Reading instruction: ", op)
+		fmt.Println("Reading instruction: ", instr)
 		switch op {
 		case OP_ADD:
 			add(instr)
