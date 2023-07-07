@@ -284,11 +284,14 @@ func trapGetc() {
 	updateFlags(R_R0)
 }
 
+func putc(c uint16) {
+	fmt.Print(string(c))
+}
+
 func trapOut() {
 	// Converts the char in R0 to string to byte buffer and writes on stdout, flushes/syncs right awy
-	char := rune(reg[R_R0])
-	os.Stdout.Write([]byte(string(char)))
-	os.Stdout.Sync()
+	putc(reg[R_R0])
+	updateFlags(R_R0)
 }
 
 func trapIn() {
@@ -309,7 +312,6 @@ func trapPuts() {
 		}
 		fmt.Printf("%c", value)
 	}
-	fmt.Println()
 }
 
 func trapPutsp() {
@@ -360,16 +362,12 @@ func memWrite(address uint16, val uint16) {
 	memory[address] = val
 }
 
-func getCharFromKeyboard() uint16 {
-	return 0
-}
-
 func memRead(address uint16) uint16 {
 
 	if address == MR_KBSR {
 		if checkKey() {
 			memory[MR_KBSR] = (1 << 15)
-			memory[MR_KBDR] = getCharFromKeyboard() //set the
+			memory[MR_KBDR] = getCharFromStdin() //set the
 		} else {
 			memory[MR_KBSR] = 0
 		}
@@ -503,10 +501,6 @@ func main() {
 		reg[R_PC]++
 
 		op := instr >> 12 //Look at the opcode
-
-		if op != 0 {
-			fmt.Println("Reading OP: ", op, "allocated in position: ", reg[R_PC])
-		}
 
 		switch op {
 		case OP_ADD:
