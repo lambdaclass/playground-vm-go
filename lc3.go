@@ -2,9 +2,8 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/binary"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
@@ -378,42 +377,32 @@ func memRead(address uint16) uint16 {
 	return memory[address]
 }
 
-func readImageFile(file *os.File, fileSize int64) {
+func printData(data []uint16) {
+	fmt.Println("DATA STATE:")
+	for i := 0; i < len(data); i += 4 {
+		fmt.Printf("%04x: %04x %04x %04x %04x\n", i, data[i], data[i+1], data[i+2], data[i+3])
+	}
+}
 
-	var origin uint16
+func readImageFile(imagePath string) {
 
-	err := binary.Read(file, binary.BigEndian, &origin)
+	// Read the file as bytes
+	fileBytes, err := ioutil.ReadFile(imagePath)
 	if err != nil {
-		fmt.Println("Failed to read origin:", err)
-		return
+		fmt.Println("Error reading file", err)
 	}
 
-	origin = swap16(origin)
+	// Create a slice to store the uint16 values
+	data := make([]uint16, len(fileBytes)/2)
 
-	maxRead := MEMORY_MAX - fileSize
-	data := make([]uint16, maxRead)
-
-	byteData := make([]byte, maxRead*2)
-	_, err = file.Read(byteData)
-	if err != nil {
-		fmt.Println("Failed to read data:", err)
-		return
+	// Convert each pair of bytes to uint16
+	for i := 0; i < len(fileBytes); i += 2 {
+		data[i/2] = uint16(fileBytes[i])<<8 | uint16(fileBytes[i+1])
 	}
 
-	err = binary.Read(bytes.NewReader(byteData), binary.BigEndian, &data)
-	if err != nil {
-		fmt.Println("Failed to decode data:", err)
-		return
-	}
-
-	fmt.Println("Tamaño de los bytes leidos", len(data))
-
-	for i := range data {
-		data[i] = swap16(data[i])
-	}
-
-	p := memory[maxRead:]
-	copy(p, data)
+	// The origin tells us where in memory to place the image
+	origin := data[0]
+	copy(memory[origin:], data[1:])
 }
 
 func swap16(val uint16) uint16 {
@@ -421,16 +410,7 @@ func swap16(val uint16) uint16 {
 }
 
 func readImage(imagePath string) bool {
-	file, err := os.Open(imagePath)
-	if err != nil {
-		fmt.Println("Failed to open file:", err)
-		return false
-	}
-	defer file.Close()
-
-	fileInfo, err := os.Stat(imagePath)
-	fmt.Println("Tamaño del fichero", fileInfo.Size())
-	readImageFile(file, fileInfo.Size())
+	readImageFile(imagePath)
 	return true
 }
 
@@ -482,20 +462,21 @@ func checkKey() bool {
 func main() {
 
 	// Load Arguments
-	if len(os.Args) < 2 {
-		// show usage string
-		fmt.Println("lc3 [image-file1] ...")
-		os.Exit(2)
-	}
+	// if len(os.Args) < 2 {
+	// 	// show usage string
+	// 	fmt.Println("lc3 [image-file1] ...")
+	// 	os.Exit(2)
+	// }
 
-	for j := 1; j < len(os.Args); j++ {
-		if !readImage(os.Args[j]) {
-			fmt.Printf("failed to load image: %s\n", os.Args[j])
-			os.Exit(1)
-		}
-	}
+	// for j := 1; j < len(os.Args); j++ {
+	// 	if !readImage(os.Args[j]) {
+	// 		fmt.Printf("failed to load image: %s\n", os.Args[j])
+	// 		os.Exit(1)
+	// 	}
+	// }
 
-	fmt.Println("Once file has been read, memory is: ", memory)
+	readImage("2048.obj")
+
 	// Setup
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
