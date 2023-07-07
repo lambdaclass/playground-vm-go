@@ -19,13 +19,8 @@
 
 # Go workspace file
 go.work
-lc3
-output.txt
-lc3-vm
-lc3-vm.c
+
 .gitignore
-output-c.txt
-output-go.txt
-.vscode/launch.json
-.vscode/tasks.json
-lc3.go
+.vscode/*
+
+c/*
