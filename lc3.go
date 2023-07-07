@@ -394,7 +394,7 @@ func readImageFile(imagePath string) {
 	data := make([]uint16, len(fileBytes)/2)
 
 	// Convert each pair of bytes to uint16
-	for i := 0; i < len(fileBytes); i += 2 {
+	for i := 0; i < len(fileBytes)-1; i += 2 {
 		data[i/2] = uint16(fileBytes[i])<<8 | uint16(fileBytes[i+1])
 	}
 
@@ -459,21 +459,19 @@ func checkKey() bool {
 
 func main() {
 
-	// Load Arguments
-	// if len(os.Args) < 2 {
-	// 	// show usage string
-	// 	fmt.Println("lc3 [image-file1] ...")
-	// 	os.Exit(2)
-	// }
+	//Load Arguments
+	if len(os.Args) < 2 {
+		// show usage string
+		fmt.Println("lc3 [image-file1] ...")
+		os.Exit(2)
+	}
 
-	// for j := 1; j < len(os.Args); j++ {
-	// 	if !readImage(os.Args[j]) {
-	// 		fmt.Printf("failed to load image: %s\n", os.Args[j])
-	// 		os.Exit(1)
-	// 	}
-	// }
-
-	readImage("2048.obj")
+	for j := 1; j < len(os.Args); j++ {
+		if !readImage(os.Args[j]) {
+			fmt.Printf("failed to load image: %s\n", os.Args[j])
+			os.Exit(1)
+		}
+	}
 
 	// Setup
 	signalChan := make(chan os.Signal, 1)
